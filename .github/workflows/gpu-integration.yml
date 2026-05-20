@@ -1,0 +1,251 @@
+name: GPU Integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_docker:
+        description: "Also run the optional Docker packaging/API checks"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  gpu-integration:
+    runs-on: [self-hosted, linux, gpu]
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    env:
+      PROJECT_DIR: ci_gpu_project
+      DOCKER_API_PORT: "5007"
+      DOCKER_IMAGE_TAG: "planktonclass-gpu-integration:latest"
+      DOCKER_CONTAINER_NAME: "planktonclass-gpu-integration-test"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install package with GPU extra
+        run: python -m pip install -e ".[gpu]" pytest
+
+      - name: Verify TensorFlow GPU visibility
+        run: |
+          python - <<'PY'
+          import tensorflow as tf
+
+          gpus = tf.config.list_physical_devices("GPU")
+          print(gpus)
+          if not gpus:
+              raise SystemExit("No GPUs visible to TensorFlow in the GPU workflow.")
+          PY
+
+      - name: Run doctor
+        run: planktonclass doctor
+
+      - name: Initialize demo project
+        run: python -m planktonclass.cli init "$PROJECT_DIR" --demo
+
+      - name: Validate config
+        run: python -m planktonclass.cli validate-config --config "$PROJECT_DIR/config.yaml"
+
+      - name: Copy notebooks
+        run: python -m planktonclass.cli notebooks "$PROJECT_DIR"
+
+      - name: Run quick GPU demo training
+        run: python -m planktonclass.cli train --config "$PROJECT_DIR/config.yaml" --quick --workers 1
+
+      - name: Resolve latest model timestamp
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          models_dir = Path(os.environ["PROJECT_DIR"]) / "models"
+          timestamp_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}$")
+          timestamps = sorted(
+              path.name
+              for path in models_dir.iterdir()
+              if path.is_dir() and timestamp_pattern.match(path.name)
+          )
+          if not timestamps:
+              available = sorted(path.name for path in models_dir.iterdir() if path.is_dir())
+              raise SystemExit(
+                  "No timestamped model runs found after training. "
+                  f"Available model directories: {available}"
+              )
+
+          latest = timestamps[-1]
+          ckpts_dir = models_dir / latest / "ckpts"
+          if (ckpts_dir / "best_model.keras").exists():
+              ckpt_name = "best_model.keras"
+          elif (ckpts_dir / "final_model.keras").exists():
+              ckpt_name = "final_model.keras"
+          else:
+              raise SystemExit(f"No supported checkpoint found in {ckpts_dir}")
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+              handle.write(f"MODEL_TIMESTAMP={latest}\n")
+              handle.write(f"MODEL_CKPT={ckpt_name}\n")
+          PY
+
+      - name: Verify GPU training artifacts
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          project_dir = Path(os.environ["PROJECT_DIR"])
+          model_dir = project_dir / "models" / os.environ["MODEL_TIMESTAMP"]
+
+          expected_paths = [
+              model_dir / "ckpts" / os.environ["MODEL_CKPT"],
+              model_dir / "conf" / "conf.json",
+              model_dir / "logs" / "training.log",
+              model_dir / "stats" / "stats.json",
+              model_dir / "predictions",
+              project_dir / "notebooks",
+          ]
+          missing = [str(path) for path in expected_paths if not path.exists()]
+          if missing:
+              raise SystemExit("Missing expected artifacts:\n" + "\n".join(missing))
+
+          stats_path = model_dir / "stats" / "stats.json"
+          with open(stats_path, encoding="utf-8") as handle:
+              stats = json.load(handle)
+          if "timestamp" not in stats:
+              raise SystemExit(f"Expected timestamp in {stats_path}")
+          PY
+
+      - name: Run in-process GPU prediction smoke check
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          from deepaas.model.v2.wrapper import UploadedFile
+
+          from planktonclass import api, config, paths
+
+          project_dir = Path(os.environ["PROJECT_DIR"])
+          config_path = project_dir / "config.yaml"
+          config.set_config_path(str(config_path.resolve()))
+          paths.CONF = config.get_conf_dict()
+
+          image_path = next(project_dir.joinpath("data", "images").rglob("*.jpg"))
+          uploaded = UploadedFile(
+              name="data",
+              filename=str(image_path.resolve()),
+              content_type="image/jpeg",
+              original_filename=image_path.name,
+          )
+
+          result = api.predict(
+              image=uploaded,
+              timestamp=os.environ["MODEL_TIMESTAMP"],
+              ckpt_name=os.environ["MODEL_CKPT"],
+          )
+          if result.get("status") != "OK":
+              raise SystemExit(f"Prediction failed: {result}")
+          predictions = result.get("predictions", {})
+          if not predictions.get("filenames"):
+              raise SystemExit(f"Prediction payload missing filenames: {predictions}")
+          PY
+
+      - name: Build GPU Docker image
+        if: ${{ inputs.run_docker }}
+        run: python -m planktonclass.cli docker "$PROJECT_DIR" --gpu --timestamp "$MODEL_TIMESTAMP" --ckpt-name "$MODEL_CKPT" --tag "$DOCKER_IMAGE_TAG"
+
+      - name: Start GPU Dockerized API server
+        if: ${{ inputs.run_docker }}
+        run: |
+          docker rm -f "$DOCKER_CONTAINER_NAME" || true
+          docker run -d --gpus all -p "$DOCKER_API_PORT:5000" --name "$DOCKER_CONTAINER_NAME" "$DOCKER_IMAGE_TAG"
+
+      - name: Wait for GPU Dockerized API server
+        if: ${{ inputs.run_docker }}
+        run: |
+          python - <<'PY'
+          import os
+          import time
+          import urllib.request
+
+          port = os.environ["DOCKER_API_PORT"]
+          url = f"http://127.0.0.1:{port}/swagger.json"
+          deadline = time.time() + 180
+          last_error = None
+
+          while time.time() < deadline:
+              try:
+                  with urllib.request.urlopen(url, timeout=10) as response:
+                      if response.status == 200:
+                          print(f"Dockerized GPU API responded at {url}")
+                          raise SystemExit(0)
+              except Exception as exc:
+                  last_error = exc
+                  time.sleep(5)
+
+          raise SystemExit(f"Dockerized GPU API did not become ready: {last_error}")
+          PY
+
+      - name: Run GPU Dockerized prediction smoke check
+        if: ${{ inputs.run_docker }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          import requests
+
+          project_dir = Path(os.environ["PROJECT_DIR"])
+          image_path = next(project_dir.joinpath("data", "images").rglob("*.jpg"))
+          base_url = f"http://127.0.0.1:{os.environ['DOCKER_API_PORT']}"
+          predict_url = f"{base_url}/v2/models/planktonclass/predict/"
+
+          with image_path.open("rb") as handle:
+              response = requests.post(
+                  predict_url,
+                  files={"image": (image_path.name, handle, "image/jpeg")},
+                  timeout=(10, 240),
+              )
+
+          response.raise_for_status()
+          payload = response.json()
+          if payload.get("status") != "OK":
+              raise SystemExit(f"Dockerized GPU prediction failed: {payload}")
+
+          predictions = payload.get("predictions", {})
+          if not predictions.get("filenames"):
+              raise SystemExit(f"Dockerized GPU prediction payload missing filenames: {predictions}")
+          PY
+
+      - name: Stop GPU Dockerized API server
+        if: ${{ always() && inputs.run_docker }}
+        run: |
+          docker rm -f "$DOCKER_CONTAINER_NAME" || true
+
+      - name: Upload Docker logs on failure
+        if: ${{ failure() && inputs.run_docker }}
+        run: docker logs "$DOCKER_CONTAINER_NAME" > docker-gpu-api.log || true
+
+      - name: Upload Docker GPU API log on failure
+        if: ${{ failure() && inputs.run_docker }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-integration-docker-api-log
+          path: docker-gpu-api.log

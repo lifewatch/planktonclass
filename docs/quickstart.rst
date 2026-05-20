@@ -11,6 +11,8 @@ If you installed the GPU extra and want to confirm that TensorFlow can see the G
 
    planktonclass doctor
 
+The doctor output also shows the active Python version and the supported Python range.
+
 Quickstart pipeline
 -------------------
 

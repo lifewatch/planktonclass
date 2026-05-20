@@ -30,6 +30,8 @@ Install with notebook support:
 
    pip install "planktonclass[notebooks]"
 
+Supported Python versions: ``3.10``, ``3.11``, ``3.12``
+
 What this gives you:
 
 * the ``planktonclass`` command-line tool
@@ -102,6 +104,13 @@ Platform notes:
 * Linux with NVIDIA GPU: primary supported GPU path for training and inference
 * WSL2 on Windows with NVIDIA GPU: recommended Windows-adjacent path for the most future-proof TensorFlow setup
 * Native Windows: GPU support uses DirectML and currently works best with Python 3.10
+
+Python support matrix:
+
+* CPU on Windows: Python ``3.10``, ``3.11``, ``3.12``
+* CPU on Linux: Python ``3.10``, ``3.11``, ``3.12``
+* GPU on Linux / WSL2: Python ``3.10``, ``3.11``, ``3.12``
+* GPU on native Windows: Python ``3.10`` only
 
 Native Windows GPU example:
 

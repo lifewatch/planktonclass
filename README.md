@@ -92,6 +92,8 @@ Install with notebook support:
 pip install "planktonclass[notebooks]"
 ```
 
+Supported Python versions: `3.10`, `3.11`, `3.12`
+
 If you want more detail about GPU support on Windows, Linux, or WSL2, jump to [GPU Setup](#gpu-setup).
 
 ## Choose Your Path
@@ -490,6 +492,13 @@ python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU')
 If that prints an empty list `[]`, the current environment is not using a GPU.
 
 ### GPU support by platform
+
+Python support matrix:
+
+- CPU on Windows: Python `3.10`, `3.11`, `3.12`
+- CPU on Linux: Python `3.10`, `3.11`, `3.12`
+- GPU on Linux / WSL2: Python `3.10`, `3.11`, `3.12`
+- GPU on native Windows: Python `3.10` only
 
 - Linux with NVIDIA GPU
   This is the primary supported GPU path for training and inference on current and future servers.

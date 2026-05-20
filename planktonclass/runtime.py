@@ -25,8 +25,10 @@ def get_runtime_info():
     system = platform.system()
     is_native_windows = system == "Windows" and not _is_wsl()
     tf_version = tf.__version__
+    python_version = platform.python_version()
 
     return {
+        "python_version": python_version,
         "tensorflow_version": tf_version,
         "system": system,
         "is_wsl": _is_wsl(),
@@ -54,7 +56,7 @@ def get_install_recommendation(info=None):
             "recommended_extra": "gpu",
             "platform_path": "windows-directml",
             "message": (
-                "Native Windows should use Python 3.10 and "
+                "Native Windows GPU should use Python 3.10 and "
                 "`pip install \"planktonclass[gpu]\"` for the DirectML path."
             ),
         }
@@ -131,6 +133,7 @@ def format_doctor_report(info=None):
     recommendation = get_install_recommendation(info)
     lines = [
         f"System: {info['system']}",
+        f"Python: {info['python_version']}",
         f"TensorFlow: {info['tensorflow_version']}",
         f"WSL: {info['is_wsl']}",
         f"Native Windows: {info['is_native_windows']}",
@@ -144,4 +147,5 @@ def format_doctor_report(info=None):
         lines.append(
             f"Suggested install: pip install \"planktonclass[{recommendation['recommended_extra']}]\""
         )
+    lines.append("Supported Python versions: 3.10, 3.11, 3.12")
     return "\n".join(lines)
