@@ -5,6 +5,12 @@ This page shows the first practical workflow after installation.
 
 If you have not installed the package yet, start with :doc:`installation`.
 
+If you installed the GPU extra and want to confirm that TensorFlow can see the GPU before training, run:
+
+.. code-block:: bash
+
+   planktonclass doctor
+
 Quickstart pipeline
 -------------------
 
