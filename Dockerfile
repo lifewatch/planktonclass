@@ -1,4 +1,5 @@
 ARG base_image=tensorflow/tensorflow:2.19.0
+ARG install_extras=
 
 FROM ${base_image}
 
@@ -29,7 +30,11 @@ RUN python3 --version && \
     pip3 install --no-cache-dir --upgrade pip "setuptools<60.0.0" wheel && \
     pip3 install --no-cache-dir "keras==3.14.0" && \
     pip3 install --no-cache-dir --ignore-installed blinker blinker && \
-    pip3 install --no-cache-dir /tmp/app
+    if [ -n "${install_extras}" ]; then \
+        pip3 install --no-cache-dir "/tmp/app[${install_extras}]"; \
+    else \
+        pip3 install --no-cache-dir /tmp/app; \
+    fi
 
 WORKDIR /srv/project
 

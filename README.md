@@ -80,10 +80,122 @@ Install with Python 3.12 and `pip`:
 pip install planktonclass
 ```
 
+This is the default CPU-oriented install.
+
+For GPU support, use:
+
+```bash
+pip install "planktonclass[gpu]"
+```
+
+That extra is designed to be friendly across platforms:
+
+- Linux / WSL2: installs TensorFlow with the CUDA runtime dependencies
+- Native Windows: adds the DirectML plugin on top of the Windows CPU TensorFlow base
+- Other platforms: falls back to the standard install behavior
+
+To inspect the current machine and see which path is active, run:
+
+```bash
+planktonclass doctor
+```
+
+### Which install should I use?
+
+- `pip install planktonclass`
+  Use this when you want the default CPU install.
+- `pip install "planktonclass[gpu]"`
+  Use this when you want GPU support and your machine supports one of the GPU paths below.
+
+### GPU support by platform
+
+- Linux with NVIDIA GPU
+  This is the primary supported GPU path for training and inference on current and future servers.
+- WSL2 on Windows with NVIDIA GPU
+  This follows the same Linux GPU path and is recommended when you want the most future-proof TensorFlow setup on Windows.
+- Native Windows
+  GPU support uses DirectML and currently works best with Python 3.10.
+  This is useful for local laptop testing, but Linux / WSL2 is still the preferred production path.
+
+### Quick checks
+
+After installation, run:
+
+```bash
+planktonclass doctor
+```
+
+What to look for:
+
+- `TensorFlow runtime: GPU enabled`
+  GPU is available and TensorFlow can use it.
+- `TensorFlow runtime: GPU unavailable`
+  The package installed, but the current environment is CPU-only.
+
+You can also check TensorFlow directly:
+
+```bash
+python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
+```
+
+If that prints an empty list `[]`, the current environment is not using a GPU.
+
 For notebook support:
 
 ```bash
 pip install "planktonclass[notebooks]"
+```
+
+For native Windows GPU inference, use Python 3.10 with DirectML:
+
+```powershell
+py -3.10 -m venv ..\g310
+..\g310\Scripts\python -m pip install --upgrade pip setuptools wheel
+..\g310\Scripts\python -m pip install -e ".[gpu]" --no-build-isolation
+```
+
+You can also use the helper script:
+
+```powershell
+.\scripts\create_gpu_env.ps1
+```
+
+If you see a long-path installation error on Windows, do not create the environment too deep inside nested folders.
+Use the helper script above or create a short path such as `..\g310`.
+
+If you need to run newer `.keras` checkpoints in that Windows GPU environment, convert them to `.h5` first:
+
+```powershell
+python .\scripts\convert_checkpoint_to_h5.py path\to\best_model.keras
+```
+
+For Linux GPU servers such as Ubuntu machines with NVIDIA drivers available through `nvidia-smi`, the intended install is simply:
+
+```bash
+python3 -m venv ~/planktonclass-gpu
+source ~/planktonclass-gpu/bin/activate
+python -m pip install --upgrade pip
+pip install "planktonclass[gpu]"
+```
+
+Or use the helper:
+
+```bash
+./scripts/setup_gpu_linux.sh
+```
+
+This Linux / WSL2 path is the primary supported GPU route for current and future NVIDIA systems.
+
+For GPU-packaged inference containers, build with:
+
+```bash
+planktonclass docker my_project --gpu
+```
+
+and run with:
+
+```bash
+docker run --gpus all -p 5000:5000 my-plankton-api:latest
 ```
 
 

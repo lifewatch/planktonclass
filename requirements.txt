@@ -1,5 +1,6 @@
 ## Core runtime
-numpy>=1.26.0,<2.2.0
+numpy>=1.26.0,<2.2.0; platform_system != "Windows" or python_version >= "3.11"
+numpy>=1.23.0,<2.0.0; platform_system == "Windows" and python_version < "3.11"
 PyYAML>=6.0
 requests>=2.27.1
 tqdm>=4.64.0
@@ -7,8 +8,10 @@ pandas>=2.0.0
 Pillow>=10.0.0
 
 ## Training / inference
-tensorflow==2.19.0
-protobuf>=3.20.0,<6.0
+tensorflow==2.19.0; platform_system != "Windows" or python_version >= "3.11"
+tensorflow-cpu==2.10.0; platform_system == "Windows" and python_version < "3.11"
+protobuf>=3.20.0,<6.0; platform_system != "Windows" or python_version >= "3.11"
+protobuf>=3.9.2,<3.20.0; platform_system == "Windows" and python_version < "3.11"
 opencv-python>=4.5.0
 albumentations~=2.0.5
 

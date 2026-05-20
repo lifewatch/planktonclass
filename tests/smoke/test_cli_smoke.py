@@ -137,3 +137,39 @@ def test_cli_list_models_shows_published_pretrained_metadata(tmp_path, monkeypat
     output = capsys.readouterr().out
     assert "FlowCam | architecture=EfficientNetV2B0 | version=latest | checkpoint=final_model.h5" in output
     assert "custom_run" in output
+
+
+def test_cli_doctor_prints_runtime_report(monkeypatch, capsys):
+    monkeypatch.setattr(cli.runtime, "format_doctor_report", lambda: "doctor-ok")
+
+    cli.main(["doctor"])
+
+    output = capsys.readouterr().out
+    assert "doctor-ok" in output
+
+
+def test_cli_docker_gpu_prints_gpu_run_hint(tmp_path, monkeypatch, capsys):
+    project_dir = tmp_path / "my_project"
+    cli.main(["init", str(project_dir)])
+    ckpt_dir = project_dir / "models" / "2026-04-29_115747" / "ckpts"
+    ckpt_dir.mkdir(parents=True)
+    (ckpt_dir / "best_model.keras").write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(cli, "_resolve_executable", lambda name: "docker")
+
+    def fake_run(command, check=False):
+        assert "--build-arg" in command
+        assert "install_extras=gpu" in command
+        assert "base_image=tensorflow/tensorflow:2.19.0-gpu" in command
+
+        class Result:
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+
+    cli.main(["docker", str(project_dir), "--gpu"])
+
+    output = capsys.readouterr().out
+    assert "docker run --gpus all -p 5000:5000" in output

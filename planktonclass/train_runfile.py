@@ -37,6 +37,7 @@ warnings_config.configure_warnings()
 import tensorflow as tf
 
 from planktonclass import config, model_utils, paths, utils
+from planktonclass.runtime import configure_tensorflow_runtime, format_runtime_summary
 from planktonclass.data_utils import (
     compute_classweights,
     compute_meanRGB,
@@ -62,13 +63,6 @@ tf.get_logger().setLevel(logging.ERROR)
 # Configure logger for training
 logger = logging.getLogger("planktonclass.train_runfile")
 logger.setLevel(logging.INFO)
-
-# Allow GPU memory growth
-gpus = tf.config.experimental.list_physical_devices("GPU")
-if gpus:
-    for gpu in gpus:
-        tf.config.experimental.set_memory_growth(gpu, True)
-
 
 def log_section(title):
     # line = "=" * 70
@@ -182,6 +176,7 @@ def train_fn(TIMESTAMP, CONF):
     warnings_config.attach_file_handler(run_log_path)
     utils.backup_splits()
     log_step("Writing run log to: %s", display_path(run_log_path))
+    log_step("%s", format_runtime_summary(configure_tensorflow_runtime(), purpose="training"))
 
     if not split_file_has_entries(paths.get_ts_splits_dir(), split_name="train"):
         if not CONF["dataset"]["split_ratios"]:

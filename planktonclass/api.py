@@ -43,6 +43,7 @@ warnings_config.configure_warnings()
 class LoadingBar:
     def __init__(self, message="Loading"):
         self.message = message
+        self.safe_message = message.encode("ascii", "replace").decode("ascii")
         self.loading = False
         self.thread = None
 
@@ -50,7 +51,7 @@ class LoadingBar:
         spinner_chars = ['|', '/', '-', '\\']
         idx = 0
         while self.loading:
-            sys.stdout.write(f'\r{self.message} {spinner_chars[idx]}')
+            sys.stdout.write(f'\r{self.safe_message} {spinner_chars[idx]}')
             sys.stdout.flush()
             idx = (idx + 1) % len(spinner_chars)
             time.sleep(0.1)
@@ -65,7 +66,7 @@ class LoadingBar:
         self.loading = False
         if self.thread:
             self.thread.join()
-        sys.stdout.write('\r' + ' ' * (len(self.message) + 10) + '\r')
+        sys.stdout.write('\r' + ' ' * (len(self.safe_message) + 10) + '\r')
         sys.stdout.flush()
 
 

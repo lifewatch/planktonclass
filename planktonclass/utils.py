@@ -22,9 +22,10 @@ from distutils.dir_util import copy_tree
 from multiprocessing import Process
 
 import numpy as np
+import tensorflow as tf
 from tensorflow.keras import backend as K
 from tensorflow.keras import callbacks
-from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import BatchNormalization, Dense, InputLayer
 
 from planktonclass import paths
 from planktonclass.optimizers import customAdam, customAdamW, customSGD
@@ -41,6 +42,28 @@ class CompatDense(Dense):
     def from_config(cls, config):
         config = dict(config)
         config.pop("quantization_config", None)
+        return super().from_config(config)
+
+
+class CompatInputLayer(InputLayer):
+    """InputLayer compatibility shim for older Keras loaders."""
+
+    @classmethod
+    def from_config(cls, config):
+        config = dict(config)
+        batch_shape = config.pop("batch_shape", None)
+        if batch_shape is not None and "batch_input_shape" not in config:
+            config["batch_input_shape"] = batch_shape
+        return super().from_config(config)
+
+
+class CompatBatchNormalization(BatchNormalization):
+    """BatchNormalization compatibility shim for newer Keras configs."""
+
+    @classmethod
+    def from_config(cls, config):
+        config = dict(config)
+        config.pop("synchronized", None)
         return super().from_config(config)
 
 
@@ -150,7 +173,10 @@ def get_custom_objects():
         "customSGD": customSGD,
         "customAdam": customAdam,
         "customAdamW": customAdamW,
+        "BatchNormalization": CompatBatchNormalization,
         "Dense": CompatDense,
+        "InputLayer": CompatInputLayer,
+        "DTypePolicy": tf.keras.mixed_precision.Policy,
     }
 
 

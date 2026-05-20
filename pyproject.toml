@@ -30,6 +30,10 @@ authors = [ {name= "Wout Decrop (VLIZ)", email= "wout.decrop@vliz.be"} ]
 planktonclass = "planktonclass.cli:main"
 
 [project.optional-dependencies]
+gpu = [
+    "tensorflow[and-cuda]==2.19.0; platform_system != 'Windows'",
+    "tensorflow-directml-plugin; platform_system == 'Windows' and python_version < '3.11'",
+]
 notebooks = [
     "jupyterlab>=4,<5",
     "ipykernel>=7,<8",

@@ -12,9 +12,11 @@ import tempfile
 from datetime import datetime
 from importlib.resources import files
 
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+
 import yaml
 
-from planktonclass import config, model_utils, paths
+from planktonclass import config, model_utils, paths, runtime
 
 
 PACKAGE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -245,6 +247,10 @@ def build_docker_image(args):
     ckpt_name = _resolve_checkpoint_name(run_dir, args.ckpt_name)
     image_tag = args.tag or f"planktonclass-inference:{timestamp.lower()}"
     docker_executable = _resolve_executable("docker")
+    install_extras = "gpu" if getattr(args, "gpu", False) else ""
+    base_image = args.base_image
+    if getattr(args, "gpu", False) and base_image == "tensorflow/tensorflow:2.19.0":
+        base_image = "tensorflow/tensorflow:2.19.0-gpu"
 
     with tempfile.TemporaryDirectory(prefix="planktonclass-docker-") as context_dir:
         _copy_docker_build_context(context_dir, project_dir, timestamp, ckpt_name)
@@ -254,7 +260,9 @@ def build_docker_image(args):
             "--tag",
             image_tag,
             "--build-arg",
-            f"base_image={args.base_image}",
+            f"base_image={base_image}",
+            "--build-arg",
+            f"install_extras={install_extras}",
             context_dir,
         ]
         completed = subprocess.run(command, check=False)
@@ -267,8 +275,11 @@ def build_docker_image(args):
     print(f"Docker image built successfully: {image_tag}")
     print(f"Model run: {timestamp}")
     print(f"Checkpoint: {ckpt_name}")
-    print(f"Base image: {args.base_image}")
-    print(f"Run with: docker run -p 5000:5000 {image_tag}")
+    print(f"Base image: {base_image}")
+    if getattr(args, "gpu", False):
+        print(f"Run with: docker run --gpus all -p 5000:5000 {image_tag}")
+    else:
+        print(f"Run with: docker run -p 5000:5000 {image_tag}")
 
 
 def _choose_report_timestamp(explicit_timestamp=None):
@@ -586,6 +597,10 @@ def download_pretrained(args):
     print(f"Checkpoint: {metadata['checkpoint_name']}")
 
 
+def doctor(args):
+    print(runtime.format_doctor_report())
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog="planktonclass")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -795,7 +810,18 @@ def build_parser():
         default="tensorflow/tensorflow:2.19.0",
         help="Base Docker image to use for the inference container.",
     )
+    docker_parser.add_argument(
+        "--gpu",
+        action="store_true",
+        help="Build a GPU-oriented inference image and print the matching `docker run --gpus all` command.",
+    )
     docker_parser.set_defaults(func=build_docker_image)
+
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Inspect TensorFlow runtime visibility and suggest the right install path.",
+    )
+    doctor_parser.set_defaults(func=doctor)
 
     return parser
 

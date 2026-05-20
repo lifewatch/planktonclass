@@ -12,6 +12,7 @@ Github: ai4os-hub / phyto-plankton-classification
 import numpy as np
 import tensorflow as tf
 from planktonclass.data_utils import k_crop_data_sequence
+from planktonclass.runtime import configure_tensorflow_runtime, format_runtime_summary
 
 
 def predict(
@@ -52,12 +53,8 @@ def predict(
             Array of predicted probabilities
     """
 
-    # --- GPU check ---
-    gpus = tf.config.list_physical_devices('GPU')
-    if gpus:
-        print("⚙ GPU is available. Using GPU:", gpus[0])
-    else:
-        print("⚙ GPU is NOT available. Using CPU.")
+    runtime_info = configure_tensorflow_runtime()
+    print(format_runtime_summary(runtime_info, purpose="prediction"))
 
     if top_K is None:
         top_K = conf["model"]["num_classes"]
@@ -77,14 +74,17 @@ def predict(
     )
     # --- Run prediction ---
     try:
-        with tf.device('/GPU:0' if gpus else '/CPU:0'):
-            output = model.predict(
-                data_gen,
-                verbose=1,
-            )
+        output = model.predict(
+            data_gen,
+            verbose=1,
+        )
     except Exception as e:
-        print("Error using GPU, falling back to CPU:", e)
-        output = model.predict(data_gen, verbose=1)
+        if runtime_info["gpu_available"]:
+            print("Error during GPU prediction, falling back to CPU:", e)
+            with tf.device("/CPU:0"):
+                output = model.predict(data_gen, verbose=1)
+        else:
+            raise
 
     # reshape to (N, crop_number, num_classes)
     output = output.reshape(len(X), -1, output.shape[-1])
