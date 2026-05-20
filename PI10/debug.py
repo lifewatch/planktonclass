@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-import planktonclas.paths as plk_paths
+import planktonclass.paths as plk_paths
 
 # =========================
 # ROOT = remove PI10 folder mistake
@@ -11,7 +11,7 @@ BASE = Path.cwd().resolve()
 if BASE.name == "PI10":
     BASE = BASE.parent
 
-# now BASE should be: .../planktonclas
+# now BASE should be: .../planktonclass
 print("\n🔎 BASE FIXED:", BASE)
 
 TIMESTAMP = "2025-10-09_140052-anasimyia"

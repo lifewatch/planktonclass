@@ -149,16 +149,17 @@ GTAGS
 
 # Things specific to this project 
 ###################################
-planktonclass/webpage/templates/labels.html
+planktonclasss/webpage/templates/labels.html
 
 
-planktonclass/run_file.ipynb
+planktonclasss/run_file.ipynb
 .Trash-0
 
+
 models/*
 models/*
-!models/2025-10-09_140052-anasimyia/
-!models/2025-10-09_140052-anasimyia/**
+# !models/2025-10-09_140052-anasimyia/
+# !models/2025-10-09_140052-anasimyia/**
 
 
 data/*
@@ -170,4 +171,14 @@ data/images/*
 
 PI10/metrics_oneFolder.py
 
-PI10/predict_o.py
+PI10/predict.py
+PI10/predict_gpu_config.json
+PI10/predict_gpu_config.example.json
+
+# GPU predict configs
+**/predict_gpu_config.json
+**/predict_gpu_config.example.json
+**/predict.py
+PI10/VLIZ-Pi-10_processing - variation with new updates.py
+PI10/VLIZ-Pi-10_processing.py
+

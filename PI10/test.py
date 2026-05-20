@@ -7,7 +7,7 @@ os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
 
 # Point the installed package to this repo's local config before importing planktonclass.
 REPO_ROOT = Path(__file__).resolve().parents[1]
-os.environ["PLANKTONCLASS_CONFIG"] = str(REPO_ROOT / "config.yaml")
+os.environ["planktonclass_CONFIG"] = str(REPO_ROOT / "config.yaml")
 os.environ["planktonclass_CONFIG"] = str(REPO_ROOT / "config.yaml")
 
 import absl.logging

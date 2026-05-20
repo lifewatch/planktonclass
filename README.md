@@ -1,4 +1,4 @@
-# Planktonclass: PI10
+# planktonclass: PI10
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19663235.svg)](https://doi.org/10.5281/zenodo.19663235)
 
