@@ -86,12 +86,6 @@ Install with GPU support:
 pip install "planktonclass[gpu]"
 ```
 
-Install with notebook support:
-
-```bash
-pip install "planktonclass[notebooks]"
-```
-
 Supported Python versions: `3.10`, `3.11`, `3.12`
 
 If you want more detail about GPU support on Windows, Linux, or WSL2, jump to [GPU Setup](#gpu-setup).
@@ -134,11 +128,6 @@ planktonclass notebooks my_project
 This copies the packaged notebooks into `my_project/notebooks/`. It is the best choice for exploration, augmentation experiments, prediction analysis, and explainability.
 
 `pip install planktonclass` installs the package dependencies used by the notebooks, including TensorFlow, plotting, and reporting libraries.
-For local notebook use, install the notebook extra instead:
-
-```bash
-pip install "planktonclass[notebooks]"
-```
 
 ## Quick Start
 
@@ -233,10 +222,10 @@ planktonclass api my_project
 
 ### Option C: I want notebooks
 
-For local notebook use:
+Use the normal install:
 
 ```bash
-pip install "planktonclass[notebooks]"
+pip install planktonclass
 ```
 
 Then create a project:

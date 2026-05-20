@@ -13,7 +13,7 @@ Notebook workflow
 
 The common order is:
 
-1. install the notebook-enabled package
+1. install the package
 2. create a project
 3. validate the config
 4. optionally download the pretrained model
@@ -21,12 +21,12 @@ The common order is:
 6. work through the notebooks in order
 7. inspect training, prediction, and explainability outputs
 
-Step 1: Install the notebook extra
-----------------------------------
+Step 1: Install the package
+---------------------------
 
 .. code-block:: bash
 
-   pip install "planktonclass[notebooks]"
+   pip install planktonclass
 
 This installs the Jupyter runtime packages needed to open and execute the notebooks locally.
 

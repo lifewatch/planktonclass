@@ -1,6 +1,10 @@
 name: GPU Integration
 
 on:
+  push:
+    branches:
+      - master
+      - main
   workflow_dispatch:
     inputs:
       run_docker:
@@ -168,17 +172,17 @@ jobs:
           PY
 
       - name: Build GPU Docker image
-        if: ${{ inputs.run_docker }}
+        if: ${{ github.event_name == 'push' || inputs.run_docker }}
         run: python -m planktonclass.cli docker "$PROJECT_DIR" --gpu --timestamp "$MODEL_TIMESTAMP" --ckpt-name "$MODEL_CKPT" --tag "$DOCKER_IMAGE_TAG"
 
       - name: Start GPU Dockerized API server
-        if: ${{ inputs.run_docker }}
+        if: ${{ github.event_name == 'push' || inputs.run_docker }}
         run: |
           docker rm -f "$DOCKER_CONTAINER_NAME" || true
           docker run -d --gpus all -p "$DOCKER_API_PORT:5000" --name "$DOCKER_CONTAINER_NAME" "$DOCKER_IMAGE_TAG"
 
       - name: Wait for GPU Dockerized API server
-        if: ${{ inputs.run_docker }}
+        if: ${{ github.event_name == 'push' || inputs.run_docker }}
         run: |
           python - <<'PY'
           import os
@@ -204,7 +208,7 @@ jobs:
           PY
 
       - name: Run GPU Dockerized prediction smoke check
-        if: ${{ inputs.run_docker }}
+        if: ${{ github.event_name == 'push' || inputs.run_docker }}
         run: |
           python - <<'PY'
           import os
@@ -235,16 +239,16 @@ jobs:
           PY
 
       - name: Stop GPU Dockerized API server
-        if: ${{ always() && inputs.run_docker }}
+        if: ${{ always() && (github.event_name == 'push' || inputs.run_docker) }}
         run: |
           docker rm -f "$DOCKER_CONTAINER_NAME" || true
 
       - name: Upload Docker logs on failure
-        if: ${{ failure() && inputs.run_docker }}
+        if: ${{ failure() && (github.event_name == 'push' || inputs.run_docker) }}
         run: docker logs "$DOCKER_CONTAINER_NAME" > docker-gpu-api.log || true
 
       - name: Upload Docker GPU API log on failure
-        if: ${{ failure() && inputs.run_docker }}
+        if: ${{ failure() && (github.event_name == 'push' || inputs.run_docker) }}
         uses: actions/upload-artifact@v4
         with:
           name: gpu-integration-docker-api-log

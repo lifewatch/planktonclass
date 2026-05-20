@@ -24,12 +24,6 @@ Install with GPU support:
 
    pip install "planktonclass[gpu]"
 
-Install with notebook support:
-
-.. code-block:: bash
-
-   pip install "planktonclass[notebooks]"
-
 Supported Python versions: ``3.10``, ``3.11``, ``3.12``
 
 What this gives you:
@@ -38,6 +32,7 @@ What this gives you:
 * local training and reporting
 * local DEEPaaS API usage
 * packaged notebook export commands
+* Jupyter notebook runtime dependencies
 * the Python modules used by the package
 
 If you want more detail about GPU support on Windows, Linux, or WSL2, continue to :ref:`gpu-setup`.
@@ -68,7 +63,7 @@ Important notes
 ---------------
 
 * use ``127.0.0.1`` in the browser; ``0.0.0.0`` is only the bind address
-* for local notebooks, install ``"planktonclass[notebooks]"``
+* notebook dependencies are included in the default install
 * for training and API usage, you will usually create a project first with ``planktonclass init my_project``
 
 .. _gpu-setup:

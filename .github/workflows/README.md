@@ -2,6 +2,8 @@
 
 This folder contains the automated test workflows for `planktonclass`.
 
+Notebook support is part of the default package install. The only special install path is `.[gpu]`.
+
 ## Overview
 
 There are three workflow layers:
@@ -39,6 +41,7 @@ Python versions:
 Runs:
 
 - quick integration on every push and pull request
+- full integration on every push to `main` or `master`
 - full integration by manual dispatch
 
 Quick integration covers:
@@ -65,14 +68,16 @@ Python versions:
 
 Recommendation:
 
-- rely on quick integration for every code change
-- use full integration before release work or after larger refactors
+- expect both quick and full integration on pushes to `main` or `master`
+- use pull requests for the lighter quick-integration path
+- use manual dispatch when you want to rerun full integration on demand
 
 ### `gpu-integration.yml`
 
 Runs:
 
-- manual dispatch only
+- push to `main` or `master`
+- manual dispatch
 
 Purpose:
 
@@ -107,6 +112,8 @@ To include Docker checks, run the workflow with:
 
 - `run_docker = true`
 
+On pushes to `main` or `master`, the Docker checks run automatically as part of the GPU workflow.
+
 ## GPU Runner Requirements
 
 The GPU workflow expects a GitHub Actions self-hosted runner with these labels:
@@ -130,8 +137,11 @@ Recommended day-to-day setup:
 - every push / PR:
   - `tests.yml`
   - quick part of `integration.yml`
-- manual when needed:
+- every push to `main` / `master`:
   - full `integration.yml`
   - `gpu-integration.yml`
+- manual when needed:
+  - rerun full `integration.yml`
+  - rerun `gpu-integration.yml` with or without Docker checks
 
 This keeps regular CI fast enough for development while still giving full package coverage and a real GPU validation path.

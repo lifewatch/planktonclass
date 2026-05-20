@@ -136,7 +136,7 @@ jobs:
           PY
 
   full-integration:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -179,15 +179,15 @@ jobs:
         run: python -m planktonclass.cli notebooks "$PROJECT_DIR"
 
       - name: Optionally download pretrained model
-        if: ${{ inputs.run_pretrained }}
+        if: ${{ github.event_name == 'push' || inputs.run_pretrained }}
         run: python -m planktonclass.cli pretrained "$PROJECT_DIR"
 
       - name: Run quick demo training
-        if: ${{ inputs.depth == 'training' || inputs.depth == 'full' }}
+        if: ${{ github.event_name == 'push' || inputs.depth == 'training' || inputs.depth == 'full' }}
         run: python -m planktonclass.cli train --config "$PROJECT_DIR/config.yaml" --quick --workers 1
 
       - name: Resolve latest model timestamp
-        if: ${{ inputs.depth == 'training' || inputs.depth == 'full' }}
+        if: ${{ github.event_name == 'push' || inputs.depth == 'training' || inputs.depth == 'full' }}
         run: |
           python - <<'PY'
           import os
@@ -223,19 +223,19 @@ jobs:
           PY
 
       - name: List models
-        if: ${{ inputs.depth == 'training' || inputs.depth == 'full' }}
+        if: ${{ github.event_name == 'push' || inputs.depth == 'training' || inputs.depth == 'full' }}
         run: python -m planktonclass.cli list-models --config "$PROJECT_DIR/config.yaml"
 
       - name: Generate quick report
-        if: ${{ inputs.depth == 'full' }}
+        if: ${{ github.event_name == 'push' || inputs.depth == 'full' }}
         run: python -m planktonclass.cli report --config "$PROJECT_DIR/config.yaml" --timestamp "$MODEL_TIMESTAMP" --mode quick
 
       - name: Build inference Docker image
-        if: ${{ inputs.depth == 'full' }}
+        if: ${{ github.event_name == 'push' || inputs.depth == 'full' }}
         run: python -m planktonclass.cli docker "$PROJECT_DIR" --timestamp "$MODEL_TIMESTAMP" --ckpt-name "$MODEL_CKPT" --tag "$DOCKER_IMAGE_TAG"
 
       - name: Verify training artifacts
-        if: ${{ inputs.depth == 'training' || inputs.depth == 'full' }}
+        if: ${{ github.event_name == 'push' || inputs.depth == 'training' || inputs.depth == 'full' }}
         run: |
           python - <<'PY'
           import json
@@ -266,7 +266,7 @@ jobs:
           PY
 
       - name: Run in-process prediction smoke check
-        if: ${{ inputs.depth == 'full' }}
+        if: ${{ github.event_name == 'push' || inputs.depth == 'full' }}
         run: |
           python - <<'PY'
           import os
@@ -302,13 +302,13 @@ jobs:
           PY
 
       - name: Start API server
-        if: ${{ inputs.depth == 'full' }}
+        if: ${{ github.event_name == 'push' || inputs.depth == 'full' }}
         run: |
           python -m planktonclass.cli api --config "$PROJECT_DIR/config.yaml" --host 127.0.0.1 --port "$API_PORT" > api.log 2>&1 &
           echo $! > api.pid
 
       - name: Wait for API server
-        if: ${{ inputs.depth == 'full' }}
+        if: ${{ github.event_name == 'push' || inputs.depth == 'full' }}
         run: |
           python - <<'PY'
           import os
@@ -334,20 +334,20 @@ jobs:
           PY
 
       - name: Stop API server
-        if: ${{ always() && inputs.depth == 'full' }}
+        if: ${{ always() && (github.event_name == 'push' || inputs.depth == 'full') }}
         run: |
           if [ -f api.pid ]; then
             kill "$(cat api.pid)" || true
           fi
 
       - name: Start Dockerized API server
-        if: ${{ inputs.depth == 'full' }}
+        if: ${{ github.event_name == 'push' || inputs.depth == 'full' }}
         run: |
           docker rm -f "$DOCKER_CONTAINER_NAME" || true
           docker run -d -p "$DOCKER_API_PORT:5000" --name "$DOCKER_CONTAINER_NAME" "$DOCKER_IMAGE_TAG"
 
       - name: Wait for Dockerized API server
-        if: ${{ inputs.depth == 'full' }}
+        if: ${{ github.event_name == 'push' || inputs.depth == 'full' }}
         run: |
           python - <<'PY'
           import os
@@ -373,7 +373,7 @@ jobs:
           PY
 
       - name: Run Dockerized prediction smoke check
-        if: ${{ inputs.depth == 'full' }}
+        if: ${{ github.event_name == 'push' || inputs.depth == 'full' }}
         run: |
           python - <<'PY'
           import os
@@ -404,7 +404,7 @@ jobs:
           PY
 
       - name: Stop Dockerized API server
-        if: ${{ always() && inputs.depth == 'full' }}
+        if: ${{ always() && (github.event_name == 'push' || inputs.depth == 'full') }}
         run: |
           docker rm -f "$DOCKER_CONTAINER_NAME" || true
 
@@ -416,11 +416,11 @@ jobs:
           path: api.log
 
       - name: Upload Docker logs on failure
-        if: ${{ failure() && inputs.depth == 'full' }}
+        if: ${{ failure() && (github.event_name == 'push' || inputs.depth == 'full') }}
         run: docker logs "$DOCKER_CONTAINER_NAME" > docker-api.log || true
 
       - name: Upload Docker API log on failure
-        if: ${{ failure() && inputs.depth == 'full' }}
+        if: ${{ failure() && (github.event_name == 'push' || inputs.depth == 'full') }}
         uses: actions/upload-artifact@v4
         with:
           name: integration-docker-api-log
