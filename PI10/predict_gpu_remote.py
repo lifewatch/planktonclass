@@ -20,6 +20,65 @@ Metadata
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 os.environ['NO_ALBUMENTATIONS_UPDATE'] = '1'
+os.environ.setdefault('TF_FORCE_GPU_ALLOW_GROWTH', 'true')
+
+import argparse
+
+
+def _env_int(name, default):
+    value = os.getenv(name)
+    if value in (None, ""):
+        return default
+    return int(value)
+
+
+def _env_float(name, default):
+    value = os.getenv(name)
+    if value in (None, ""):
+        return default
+    return float(value)
+
+
+def _parse_startup_args():
+    parser = argparse.ArgumentParser(description="PI10 GPU prediction worker")
+    parser.add_argument(
+        "--gpu",
+        default=os.getenv("PI10_GPU", ""),
+        help="Physical GPU id to expose to TensorFlow, for example 0 or 1.",
+    )
+    parser.add_argument(
+        "--worker-id",
+        default=os.getenv("PI10_WORKER_ID", ""),
+        help="Worker name used for per-worker scratch/log paths.",
+    )
+    parser.add_argument(
+        "--sleep-seconds",
+        type=int,
+        default=_env_int("PI10_SLEEP_SECONDS", 3600),
+        help="Seconds to sleep between source directory scans.",
+    )
+    parser.add_argument(
+        "--stale-lock-hours",
+        type=float,
+        default=_env_float("PI10_STALE_LOCK_HOURS", 72.0),
+        help="Remove .lock files older than this many hours; set 0 to disable.",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Scan/process the current queue once, then exit.",
+    )
+    parser.add_argument(
+        "--disable-email",
+        action="store_true",
+        help="Disable this worker's daily email scheduler.",
+    )
+    return parser.parse_args()
+
+
+STARTUP_ARGS = _parse_startup_args()
+if STARTUP_ARGS.gpu:
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(STARTUP_ARGS.gpu)
 
 import absl.logging
 absl.logging.set_verbosity(absl.logging.ERROR)
@@ -160,6 +219,29 @@ PI10_ROOT = _resolve_path(
     PREDICT_CONFIG_PATH.parent,
 )
 
+
+def _sanitize_worker_id(value):
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    value = re.sub(r"[^A-Za-z0-9_.-]+", "-", value)
+    return value.strip("-._") or "worker"
+
+
+def _default_worker_id():
+    if STARTUP_ARGS.worker_id:
+        return STARTUP_ARGS.worker_id
+    if STARTUP_ARGS.gpu:
+        return f"gpu{str(STARTUP_ARGS.gpu).replace(',', '-')}"
+    cuda_visible = os.getenv("CUDA_VISIBLE_DEVICES", "")
+    if cuda_visible:
+        return f"gpu{cuda_visible.replace(',', '-')}"
+    return ""
+
+
+WORKER_ID = _sanitize_worker_id(_default_worker_id())
+WORKER_LABEL = WORKER_ID or "default"
+
 # === LOGGING ===
 log_dir = _path_from_pi10_root(PATH_CONFIG, "log_dir", "not_processed", "GPU_ENVIRONMENT", "logs")
 log_dir.mkdir(parents=True, exist_ok=True)
@@ -172,7 +254,8 @@ mail_metrics_dir = _path_from_config(
 mail_metrics_dir.mkdir(parents=True, exist_ok=True)
 
 now_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-log_file_path = log_dir / f"processing_times_{now_time}.csv"
+log_worker_suffix = f"_{WORKER_ID}" if WORKER_ID else ""
+log_file_path = log_dir / f"processing_times_{now_time}{log_worker_suffix}.csv"
 daily_tar_count_json = mail_metrics_dir / "daily_tar_count.json"
 daily_mail_metrics_csv = mail_metrics_dir / "daily_mail_metrics_history.csv"
 daily_tar_progress_png = mail_metrics_dir / "daily_tar_progress.png"
@@ -190,13 +273,14 @@ exiftool_path = _executable_from_config(
 
 # === DIRECTORIES ===
 source_dir = _path_from_pi10_root(PATH_CONFIG, "source_dir", "processed", "2025")
-work_dir = _path_from_pi10_root(
+base_work_dir = _path_from_pi10_root(
     PATH_CONFIG,
     "work_dir",
     "not_processed",
     "GPU_ENVIRONMENT",
     "PI10_tempUntarred",
 )
+work_dir = base_work_dir / f"worker_{WORKER_ID}" if WORKER_ID else base_work_dir
 gpu_env = _path_from_pi10_root(PATH_CONFIG, "gpu_env", "not_processed", "GPU_ENVIRONMENT")
 
 
@@ -282,14 +366,16 @@ EMAIL_SETTINGS = {
     'sender_password': os.getenv('SENDER_PASSWORD'),
     'recipients': [email.strip() for email in email_recipients.split(',') if email.strip()]
 }
-EMAIL_ENABLED = all([
+EMAIL_ENABLED = (not STARTUP_ARGS.disable_email) and all([
     EMAIL_SETTINGS['smtp_server'],
     EMAIL_SETTINGS['smtp_port'],
     EMAIL_SETTINGS['sender_email'],
     EMAIL_SETTINGS['sender_password'],
     EMAIL_SETTINGS['recipients'],
 ])
-if not EMAIL_ENABLED:
+if STARTUP_ARGS.disable_email:
+    print("Email summaries disabled for this worker by --disable-email.")
+elif not EMAIL_ENABLED:
     print("⚠️ Email summaries disabled because SMTP settings are incomplete.")
 daily_tar_reports = []  # Stores dicts with tar_name, quarantined, quarantine_reason, quarantine_path, status_log
 
@@ -2518,31 +2604,137 @@ def process_tar(tar_file):
             print(f"⚠️ Incomplete outputs for {tar_name}; not writing .done")
 
 
-# === CONTINUOUS WATCH ===
-print("⚙  Watching for new .tar files (press Ctrl+C to stop)...")
-while True:
-    now = datetime.datetime.now()
-    today_str = now.strftime('%Y-%m-%d')
+# === WORKER LOCKS ===
+LOCK_STALE_AFTER_SECONDS = max(0.0, STARTUP_ARGS.stale_lock_hours * 3600.0)
+LOCK_HEARTBEAT_SECONDS = 300.0
 
+
+def _lock_is_stale(lockfile):
+    if LOCK_STALE_AFTER_SECONDS <= 0:
+        return False
+
+    try:
+        age_seconds = time.time() - lockfile.stat().st_mtime
+    except FileNotFoundError:
+        return False
+
+    return age_seconds > LOCK_STALE_AFTER_SECONDS
+
+
+def acquire_tar_lock(tar_file):
+    lockfile = source_dir / f"{tar_file.stem}.lock"
+
+    if lockfile.exists() and _lock_is_stale(lockfile):
+        try:
+            lockfile.unlink()
+            print(f"Removed stale lock: {lockfile.name}")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"Could not remove stale lock {lockfile.name}: {e}")
+            return None
+
+    metadata = {
+        "tar": tar_file.name,
+        "worker": WORKER_LABEL,
+        "pid": os.getpid(),
+        "created_at": datetime.datetime.now().isoformat(timespec="seconds"),
+        "cuda_visible_devices": os.getenv("CUDA_VISIBLE_DEVICES", ""),
+    }
+
+    try:
+        fd = os.open(str(lockfile), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return None
+
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(metadata, handle, indent=2)
+        handle.write("\n")
+
+    return lockfile
+
+
+def release_tar_lock(lockfile):
+    if lockfile is None:
+        return
+
+    try:
+        lockfile.unlink()
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"Could not remove lock {lockfile.name}: {e}")
+
+
+def start_lock_heartbeat(lockfile):
+    stop_event = threading.Event()
+
+    if lockfile is None or LOCK_STALE_AFTER_SECONDS <= 0:
+        return stop_event, None
+
+    interval = min(LOCK_HEARTBEAT_SECONDS, max(60.0, LOCK_STALE_AFTER_SECONDS / 4.0))
+
+    def heartbeat():
+        while not stop_event.wait(interval):
+            try:
+                os.utime(lockfile, None)
+            except FileNotFoundError:
+                return
+            except Exception as e:
+                print(f"Could not refresh lock {lockfile.name}: {e}")
+
+    thread = threading.Thread(target=heartbeat, daemon=True)
+    thread.start()
+    return stop_event, thread
+
+
+def stop_lock_heartbeat(stop_event, thread):
+    stop_event.set()
+    if thread is not None:
+        thread.join(timeout=2.0)
+
+
+def process_available_tars_once():
     new_files = get_new_tar_files(source_dir)
     pipeline_count = len(new_files)
 
     if pipeline_count == 0:
-        print(f"[{time.ctime()}] No new .tar files. Sleeping...")
-        time.sleep(3600)
-    else:
-        print(f"[{time.ctime()}] ✅ {pipeline_count} .tar file(s) in the processing pipeline.")
-        for tar_file in new_files:
-            lockfile = source_dir / f"{tar_file.stem}.lock"
-            if lockfile.exists():
-                continue
-            try:
-                lockfile.touch(exist_ok=False)
-                process_tar(tar_file)
-            except Exception as e:
-                print(f"❌ Failed to process {tar_file.name}: {e}")
-            finally:
-                if lockfile.exists():
-                    lockfile.unlink()
-        print("🔁 Rechecking in 1 hour...")
-        time.sleep(3600)
+        print(f"[{time.ctime()}] No new .tar files.")
+        return False
+
+    print(f"[{time.ctime()}] {pipeline_count} .tar file(s) in the processing pipeline.")
+    processed_any = False
+
+    for tar_file in new_files:
+        lockfile = acquire_tar_lock(tar_file)
+        if lockfile is None:
+            continue
+
+        heartbeat_stop, heartbeat_thread = start_lock_heartbeat(lockfile)
+        try:
+            processed_any = True
+            process_tar(tar_file)
+        except Exception as e:
+            print(f"Failed to process {tar_file.name}: {e}")
+        finally:
+            stop_lock_heartbeat(heartbeat_stop, heartbeat_thread)
+            release_tar_lock(lockfile)
+
+    if not processed_any:
+        print(f"[{time.ctime()}] All queued .tar files are already locked by other workers.")
+
+    return processed_any
+
+
+# === CONTINUOUS WATCH ===
+print("Watching for new .tar files (press Ctrl+C to stop)...")
+print(f"Worker: {WORKER_LABEL}")
+print(f"CUDA_VISIBLE_DEVICES: {os.getenv('CUDA_VISIBLE_DEVICES', '(not set)')}")
+print(f"Scratch work dir: {work_dir}")
+while True:
+    process_available_tars_once()
+    if STARTUP_ARGS.once:
+        break
+
+    print(f"Rechecking in {STARTUP_ARGS.sleep_seconds} seconds...")
+    time.sleep(STARTUP_ARGS.sleep_seconds)
