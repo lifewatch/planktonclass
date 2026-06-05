@@ -46,6 +46,17 @@ import threading
 import time
 import csv
 import re
+from email.mime.image import MIMEImage
+from email.mime.multipart import MIMEMultipart
+
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    plt = None
+    MATPLOTLIB_AVAILABLE = False
 
 last_summary_date = None  # will track the last date email was sent
 last_afternoon_summary_sent_day = None  # for 15:00 status update
@@ -142,6 +153,7 @@ def _executable_from_config(config_section, key, default, base_dir):
 PREDICT_CONFIG, PREDICT_CONFIG_PATH = _load_predict_config()
 PATH_CONFIG = _config_section(PREDICT_CONFIG, "paths")
 MODEL_CONFIG = _config_section(PREDICT_CONFIG, "model")
+MAIL_CONFIG = _config_section(PREDICT_CONFIG, "mail")
 
 PI10_ROOT = _resolve_path(
     _require_config_value(PATH_CONFIG, "pi10_root"),
@@ -151,9 +163,19 @@ PI10_ROOT = _resolve_path(
 # === LOGGING ===
 log_dir = _path_from_pi10_root(PATH_CONFIG, "log_dir", "not_processed", "GPU_ENVIRONMENT", "logs")
 log_dir.mkdir(parents=True, exist_ok=True)
+mail_metrics_dir = _path_from_config(
+    PATH_CONFIG,
+    "mail_metrics_dir",
+    log_dir / "mail_metrics",
+    PI10_ROOT,
+)
+mail_metrics_dir.mkdir(parents=True, exist_ok=True)
 
 now_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 log_file_path = log_dir / f"processing_times_{now_time}.csv"
+daily_tar_count_json = mail_metrics_dir / "daily_tar_count.json"
+daily_mail_metrics_csv = mail_metrics_dir / "daily_mail_metrics_history.csv"
+daily_tar_progress_png = mail_metrics_dir / "daily_tar_progress.png"
 
 # === PATHS ===
 preview_path = _path_from_pi10_root(PATH_CONFIG, "preview_path", "not_processed", "previews")
@@ -228,7 +250,7 @@ quarantine_nogps_dir.mkdir(parents=True, exist_ok=True)
 
 VALIDATION_CONFIG = _config_section(PREDICT_CONFIG, "validation")
 GPS_QUARANTINE_CONFIG = _config_section(PREDICT_CONFIG, "gps_quarantine")
-MAX_MISS_HIT_RATIO = float(VALIDATION_CONFIG.get("max_miss_hit_ratio", 100))
+MAX_MISS_HIT_RATIO = float(VALIDATION_CONFIG.get("max_miss_hit_ratio", 50))
 REQUIRED_HITSMISSES_ROWS = int(VALIDATION_CONFIG.get("required_hitsmisses_rows", 10))
 GRAY_EDGE_SAMPLE_SIZE = int(VALIDATION_CONFIG.get("gray_edge_sample_size", 20))
 GRAY_EDGE_FRACTION = float(VALIDATION_CONFIG.get("gray_edge_fraction", 0.01))
@@ -239,6 +261,8 @@ GRAY_EDGE_MEAN_MIN = (
 QUARANTINE_LAT = float(GPS_QUARANTINE_CONFIG.get("latitude", 51.235293843807796))
 QUARANTINE_LON = float(GPS_QUARANTINE_CONFIG.get("longitude", 2.9310864728604327))
 QUARANTINE_RADIUS_M = float(GPS_QUARANTINE_CONFIG.get("radius_m", 50))
+PREVIEW_BUBBLE_THRESHOLD = float(VALIDATION_CONFIG.get("preview_bubble_threshold", 0.4))
+DAILY_SUMMARY_HOUR = int(MAIL_CONFIG.get("daily_summary_hour", 11))
 
 #=== MAILING ===
 from dotenv import load_dotenv
@@ -283,61 +307,176 @@ def email_scheduler():
         current_date = now.date()
 
         # Send summary at exactly 15:00 once per day
-        if (now.hour == 11 and now.minute == 0
+        if (now.hour == DAILY_SUMMARY_HOUR and now.minute == 0
                 and last_afternoon_summary_sent_day != current_date):
             send_daily_summary_email(now.strftime('%Y-%m-%d'), daily_tar_reports)
             last_afternoon_summary_sent_day = current_date
 
         time.sleep(60)  # check every minute
 
+def collect_mail_metrics(summary_date):
+    all_tar_files = list(source_dir.glob("*.tar"))
+    tar_stems = {tar.stem for tar in all_tar_files}
+    done_marker_stems = {p.stem for p in source_dir.glob("*.done")}
+    fully_done_stems = {
+        stem for stem in tar_stems
+        if all((source_dir / f"{stem}{suffix}").exists() for suffix in REQUIRED_SUFFIXES)
+    }
+    done_stems_combined = done_marker_stems.union(fully_done_stems)
+
+    total_tars = len(tar_stems)
+    done_tars = len(done_stems_combined.intersection(tar_stems))
+    remaining_tars = max(0, total_tars - done_tars)
+
+    metrics = {
+        "date": summary_date,
+        "logged_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "total_tars": total_tars,
+        "done_tars": done_tars,
+        "remaining_tars": remaining_tars,
+        "tar_files": len(all_tar_files),
+        "done_markers": len(done_marker_stems),
+        "gpstag_files": len(list(source_dir.glob("*_gpstag.csv"))),
+        "prediction_json_files": len(list(source_dir.glob("*_predictions_relative.json"))),
+        "image_property_files": len(list(source_dir.glob("*_image_properties.csv"))),
+        "topspecies_files": len(list(source_dir.glob("*_topspecies.csv"))),
+        "hitsmisses_files": len(list(source_dir.glob("*_hitsmisses.txt"))),
+        "background_files": len(list(source_dir.glob("*_Background.tif"))),
+        "bio_metrics_files": len(list(source_dir.glob("*_bio-metrics.csv"))),
+    }
+    return metrics, tar_stems
+
+def update_daily_mail_history(metrics):
+    new_row = pd.DataFrame([metrics])
+
+    if daily_mail_metrics_csv.exists():
+        history_df = pd.read_csv(daily_mail_metrics_csv)
+    else:
+        history_df = pd.DataFrame()
+
+    if not history_df.empty and "date" in history_df.columns:
+        history_df = history_df[history_df["date"] != metrics["date"]]
+
+    history_df = pd.concat([history_df, new_row], ignore_index=True)
+    history_df["date"] = pd.to_datetime(history_df["date"], errors="coerce")
+    history_df = history_df.dropna(subset=["date"])
+    history_df = history_df.sort_values("date")
+    history_df["date"] = history_df["date"].dt.strftime("%Y-%m-%d")
+    history_df.to_csv(daily_mail_metrics_csv, index=False)
+
+    return history_df
+
+def make_daily_tar_progress_plot(history_df):
+    if not MATPLOTLIB_AVAILABLE or history_df is None or history_df.empty:
+        return None
+
+    plot_df = history_df.copy()
+    plot_df["date"] = pd.to_datetime(plot_df["date"], errors="coerce")
+    plot_df = plot_df.dropna(subset=["date"])
+    if plot_df.empty:
+        return None
+
+    for col in ["total_tars", "done_tars", "remaining_tars"]:
+        plot_df[col] = pd.to_numeric(plot_df[col], errors="coerce")
+
+    plot_df = plot_df.sort_values("date")
+    fig, ax = plt.subplots(figsize=(11, 6))
+
+    ax.plot(plot_df["date"], plot_df["total_tars"], marker="o", linewidth=2, label="Total TARs")
+    ax.plot(plot_df["date"], plot_df["done_tars"], marker="o", linewidth=2, label="Done")
+    ax.plot(plot_df["date"], plot_df["remaining_tars"], marker="o", linewidth=2, label="Remaining")
+
+    latest = plot_df.iloc[-1]
+    latest_date = latest["date"]
+    for col, label in [("total_tars", "Total"), ("done_tars", "Done"), ("remaining_tars", "Remaining")]:
+        value = latest[col]
+        if pd.notna(value):
+            ax.annotate(
+                f"{label}: {int(value)}",
+                xy=(latest_date, value),
+                xytext=(8, 0),
+                textcoords="offset points",
+                va="center",
+                fontsize=9,
+            )
+
+    done = latest["done_tars"]
+    total = latest["total_tars"]
+    remaining = latest["remaining_tars"]
+    pct_done = 100 * done / total if pd.notna(done) and pd.notna(total) and total > 0 else 0
+    summary_text = (
+        f"Latest: {latest_date.strftime('%Y-%m-%d')}\n"
+        f"Total TARs: {int(total) if pd.notna(total) else 0}\n"
+        f"Done: {int(done) if pd.notna(done) else 0} ({pct_done:.1f}%)\n"
+        f"Remaining: {int(remaining) if pd.notna(remaining) else 0}"
+    )
+    ax.text(
+        0.02,
+        0.98,
+        summary_text,
+        transform=ax.transAxes,
+        va="top",
+        ha="left",
+        fontsize=10,
+        bbox=dict(boxstyle="round,pad=0.4", alpha=0.15),
+    )
+    ax.set_title("PI10 TAR processing progress")
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Number of TARs")
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="best")
+    fig.autofmt_xdate(rotation=30)
+    fig.tight_layout()
+    fig.savefig(daily_tar_progress_png, dpi=150)
+    plt.close(fig)
+
+    return daily_tar_progress_png
+
 def send_daily_summary_email(summary_date, report_data):
-    import math
     global source_dir
 
     subject = f"[PI10] Daily Summary - {summary_date}"
-    all_tar_files = list(source_dir.glob("*.tar"))
-    tar_stems = {tar.stem for tar in all_tar_files}
+    metrics, tar_stems = collect_mail_metrics(summary_date)
+    history_df = update_daily_mail_history(metrics)
+    plot_path = make_daily_tar_progress_plot(history_df)
 
-    # === Count current files ===
     current_counts = {
-        "tar": len(all_tar_files),
-        "gpstag": len(list(source_dir.glob("*_gpstag.csv"))),
-        "predictions": len(list(source_dir.glob("*_predictions_relative.json"))),
-        "image_props": len(list(source_dir.glob("*_image_properties.csv"))),
-        "topspecies": len(list(source_dir.glob("*_topspecies.csv"))),
-        "hitsmisses": len(list(source_dir.glob("*_hitsmisses.txt"))),
-        "backgrounds": len(list(source_dir.glob("*_Background.tif"))),
+        "tar": metrics["tar_files"],
+        "done": metrics["done_tars"],
+        "remaining": metrics["remaining_tars"],
+        "gpstag": metrics["gpstag_files"],
+        "predictions": metrics["prediction_json_files"],
+        "image_props": metrics["image_property_files"],
+        "topspecies": metrics["topspecies_files"],
+        "hitsmisses": metrics["hitsmisses_files"],
+        "backgrounds": metrics["background_files"],
+        "bio_metrics": metrics["bio_metrics_files"],
     }
 
-    # === Load yesterday's counts from file ===
-    delta_file = Path("daily_tar_count.json")
     yesterday_counts = {k: 0 for k in current_counts}
-    if delta_file.exists():
+    if daily_tar_count_json.exists():
         try:
-            with open(delta_file, 'r') as f:
+            with open(daily_tar_count_json, "r") as f:
                 yesterday_counts.update(json.load(f))
         except Exception as e:
-            print(f"⚠️ Could not read yesterday's count: {e}")
+            print(f"⚠️ Could not read previous daily count: {e}")
 
-    # === Calculate deltas ===
     deltas = {k: current_counts[k] - yesterday_counts.get(k, 0) for k in current_counts}
-    tar_delta = deltas["tar"]
 
-    # === Save today’s counts for tomorrow ===
     try:
-        with open(delta_file, 'w') as f:
-            json.dump(current_counts, f)
+        with open(daily_tar_count_json, "w") as f:
+            json.dump(current_counts, f, indent=2)
     except Exception as e:
-        print(f"⚠️ Could not write today's count: {e}")
+        print(f"⚠️ Could not write current daily count: {e}")
 
-    # === Calculate to-do (missing output per TAR) ===
     required_outputs = {
-        "_gpstag.csv": ("GPS data", 0.5),                   # 30 mins per file
-        "_hitsmisses.txt": ("Hits/Misses", 10 / 3600),      # 10 sec per file
-        "_Background.tif": ("Background.tif", 10 / 3600),   # 10 sec per file
-        "_predictions_relative.json": ("Predictions (JSON)", 3),  # 3 hours per file
-        "_image_properties.csv": ("Image Properties (CSV)", 0.5), # 30 mins per file
-        "_topspecies.csv": ("Top Species CSV", 2 / 60),     # 2 mins per file
+        "_gpstag.csv": ("GPS data", 0.5),
+        "_hitsmisses.txt": ("Hits/Misses", 10 / 3600),
+        "_Background.tif": ("Background.tif", 10 / 3600),
+        "_predictions_relative.json": ("Predictions (JSON)", 3),
+        "_image_properties.csv": ("Image Properties (CSV)", 0.5),
+        "_topspecies.csv": ("Top Species CSV", 2 / 60),
+        "_bio-metrics.csv": ("Bio metrics", 2 / 60),
     }
 
     todo_counts = {}
@@ -350,7 +489,6 @@ def send_daily_summary_email(summary_date, report_data):
         total_hours = count * per_file_hours
         raw_time_estimations[label] = total_hours
 
-        # Format time
         if total_hours >= 24:
             formatted_time_estimations[label] = f"{round(total_hours / 24, 2)} day(s)"
         else:
@@ -366,51 +504,79 @@ def send_daily_summary_email(summary_date, report_data):
         tm = round((total_time - th) * 60)
         total_time_str = f"{th}h {tm}min"
 
-    # === Build email body ===
     body_lines = []
-    body_lines.append(f"🆕 **{abs(tar_delta)} TARs {'extra' if tar_delta >= 0 else 'less'} compared to yesterday**")
+    body_lines.append(f"Summary for {summary_date}")
     body_lines.append("=" * 60)
     body_lines.append("")
-
-    body_lines.append(f"**Summary for {summary_date}**")
-    body_lines.append(f"TARs entirely processed today: {len(report_data)}")
+    body_lines.append("TAR processing progress:")
+    body_lines.append(f"- Total TARs in processing folder: {metrics['total_tars']}")
+    body_lines.append(f"- Done TARs: {metrics['done_tars']}")
+    body_lines.append(f"- Remaining TARs: {metrics['remaining_tars']}")
+    if metrics["total_tars"] > 0:
+        pct_done = 100 * metrics["done_tars"] / metrics["total_tars"]
+        body_lines.append(f"- Completion: {pct_done:.1f}%")
     body_lines.append("")
-
-    body_lines.append("**Folder Totals vs Yesterday:**")
-    for key, label in [
-        ("tar", "TAR files"),
-        ("gpstag", "GPS data (gpstag.csv)"),
-        ("predictions", "Predictions (JSON)"),
-        ("image_props", "Image Properties (CSV)"),
-        ("topspecies", "Top Species CSV"),
-        ("hitsmisses", "Hits/Misses TXT"),
-        ("backgrounds", "Background.tif"),
-    ]:
-        delta = deltas[key]
-        sign = "+" if delta >= 0 else "-"
-        body_lines.append(f"- {label}: {current_counts[key]} ({sign}{abs(delta)})")
-
+    body_lines.append(f"TARs entirely processed since script start: {len(report_data)}")
     body_lines.append("")
-    body_lines.append("**To-do by output module (missing files):**")
+    body_lines.append("Folder totals vs previous mail:")
+    body_lines.append(f"- TAR files: {current_counts['tar']} ({deltas['tar']:+})")
+    body_lines.append(f"- Done TARs: {current_counts['done']} ({deltas['done']:+})")
+    body_lines.append(f"- Remaining TARs: {current_counts['remaining']} ({deltas['remaining']:+})")
+    body_lines.append(f"- GPS data: {current_counts['gpstag']} ({deltas['gpstag']:+})")
+    body_lines.append(f"- Predictions JSON: {current_counts['predictions']} ({deltas['predictions']:+})")
+    body_lines.append(f"- Image properties CSV: {current_counts['image_props']} ({deltas['image_props']:+})")
+    body_lines.append(f"- Top Species CSV: {current_counts['topspecies']} ({deltas['topspecies']:+})")
+    body_lines.append(f"- Hits/Misses TXT: {current_counts['hitsmisses']} ({deltas['hitsmisses']:+})")
+    body_lines.append(f"- Background.tif: {current_counts['backgrounds']} ({deltas['backgrounds']:+})")
+    body_lines.append(f"- Bio metrics CSV: {current_counts['bio_metrics']} ({deltas['bio_metrics']:+})")
+    body_lines.append("")
+    body_lines.append("To-do by output module:")
     for label in todo_counts:
         count = todo_counts[label]
         formatted_time = formatted_time_estimations[label]
         body_lines.append(f"- {label}: {count} files missing ({formatted_time})")
-
     body_lines.append("")
-    body_lines.append(f"**Total estimated processing time left:** {total_time_str}")
+    body_lines.append(f"Total estimated processing time left: {total_time_str}")
+    body_lines.append("")
+    body_lines.append(f"Mail metrics history: {daily_mail_metrics_csv}")
+    if plot_path is not None:
+        body_lines.append(f"Progress plot: {daily_tar_progress_png}")
 
-    # === Send email ===
-    msg = MIMEText("\n".join(body_lines))
-    msg['Subject'] = subject
-    msg['From'] = EMAIL_SETTINGS['sender_email']
-    msg['To'] = ", ".join(EMAIL_SETTINGS['recipients'])
+    msg = MIMEMultipart()
+    msg["Subject"] = subject
+    msg["From"] = EMAIL_SETTINGS["sender_email"]
+    msg["To"] = ", ".join(EMAIL_SETTINGS["recipients"])
+    image_section = ""
+    if plot_path is not None:
+        image_section = (
+            "<h3 style=\"font-family: Arial, sans-serif;\">PI10 TAR processing progress</h3>"
+            "<img src=\"cid:daily_tar_progress\" style=\"max-width: 900px; width: 100%; height: auto;\">"
+        )
+    html = (
+        "<html><body>"
+        "<div style=\"font-family: Arial, sans-serif; font-size: 13px; line-height: 1.4;\">"
+        f"{'<br>'.join(body_lines)}"
+        "</div>"
+        f"{image_section}"
+        "</body></html>"
+    )
+    msg.attach(MIMEText(html, "html"))
+
+    if plot_path is not None and Path(plot_path).exists():
+        try:
+            with open(plot_path, "rb") as img_file:
+                img = MIMEImage(img_file.read(), _subtype="png")
+            img.add_header("Content-ID", "<daily_tar_progress>")
+            img.add_header("Content-Disposition", "inline", filename=Path(plot_path).name)
+            msg.attach(img)
+        except Exception as e:
+            print(f"⚠️ Could not embed progress plot inline: {e}")
 
     try:
-        with smtplib.SMTP(EMAIL_SETTINGS['smtp_server'], EMAIL_SETTINGS['smtp_port']) as server:
+        with smtplib.SMTP(EMAIL_SETTINGS["smtp_server"], EMAIL_SETTINGS["smtp_port"]) as server:
             server.starttls()
-            server.login(EMAIL_SETTINGS['sender_email'], EMAIL_SETTINGS['sender_password'])
-            server.sendmail(msg['From'], EMAIL_SETTINGS['recipients'], msg.as_string())
+            server.login(EMAIL_SETTINGS["sender_email"], EMAIL_SETTINGS["sender_password"])
+            server.sendmail(msg["From"], EMAIL_SETTINGS["recipients"], msg.as_string())
         print(f"📧 Daily summary email sent for {summary_date}")
     except Exception as e:
         print(f"❌ Failed to send daily summary email: {e}")
@@ -432,6 +598,7 @@ def init_log_file():
         "Copy Background.tif",
         "Extract and save EXIF metadata",
         "Classification and morphology extraction",
+        "Export images by taxon",
         "Generate top species CSV",
         "Per-minute bio metrics",
         "Total pipeline time (h)",
@@ -446,7 +613,30 @@ def init_log_file():
             writer.writerow(headers)
         print("⚙ Initialized new processing time log file.")
     else:
-        print("⚙ Log file already exists, appending new entries.")
+        try:
+            with open(log_file_path, "r", newline="") as log_file:
+                rows = list(csv.reader(log_file))
+
+            if rows and rows[0] != headers:
+                old_headers = rows[0]
+                rewritten_rows = [headers]
+                for row in rows[1:]:
+                    row_by_header = {
+                        header: row[idx] if idx < len(row) else ""
+                        for idx, header in enumerate(old_headers)
+                    }
+                    rewritten_rows.append([row_by_header.get(header, "") for header in headers])
+
+                with open(log_file_path, "w", newline="") as log_file:
+                    writer = csv.writer(log_file)
+                    writer.writerows(rewritten_rows)
+
+                print("⚙ Log file header updated for current pipeline steps.")
+            else:
+                print("⚙ Log file already exists, appending new entries.")
+        except Exception as e:
+            print(f"⚠️ Could not validate/update log file header: {e}")
+            print("⚙ Log file already exists, appending new entries.")
 
 # for the logfiles; these are the headers
 step_names = [
@@ -460,6 +650,7 @@ step_names = [
     "Copy Background.tif",
     "Extract and save EXIF metadata",
     "Classification and morphology extraction",
+    "Export images by taxon",
     "Generate top species CSV",
     "Per-minute bio metrics"
 ]
@@ -1153,6 +1344,48 @@ def clear_untarred_dir(dir_path, retries=8, delay=1.0):
                 raise RuntimeError(f"Failed to clear directory {dir_path}: {e}") from e
 
 
+def clear_temp_output_dir(output_dir):
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    removed_files = 0
+    removed_dirs = 0
+
+    for item in output_dir.iterdir():
+        try:
+            if item.is_file() or item.is_symlink():
+                item.unlink()
+                removed_files += 1
+            elif item.is_dir():
+                shutil.rmtree(item, onerror=_retry_remove_readonly)
+                removed_dirs += 1
+        except Exception as e:
+            print(f"       ⚠️ Could not remove temp output item {item}: {e}")
+
+    print(f"       ✅ Cleared temp output: {removed_files} file(s), {removed_dirs} folder(s).")
+
+
+def remove_empty_dirs(root_dir):
+    root_dir = Path(root_dir)
+    if not root_dir.exists():
+        return
+
+    removed = 0
+    for dirpath, _, _ in os.walk(root_dir, topdown=False):
+        path = Path(dirpath)
+        if path == root_dir:
+            continue
+
+        try:
+            if not any(path.iterdir()):
+                path.rmdir()
+                removed += 1
+        except Exception as e:
+            print(f"       ⚠️ Could not remove empty folder {path}: {e}")
+
+    if removed:
+        print(f"       ✅ Removed {removed} empty folder(s) from {root_dir}")
+
+
 def extract_tar(tar_path, extract_to):
     start_time = timer()  # Start timing
     print(f"⚙ Untarring {tar_path.name}...")
@@ -1652,7 +1885,7 @@ def generate_topspecies_csv(json_path,
     print("       ✅ Done")
 
 
-def check_preview_class_distribution(preview_tifs, threshold=0.3):
+def check_preview_class_distribution(preview_tifs, threshold=PREVIEW_BUBBLE_THRESHOLD):
     print("⚙ Running preview classification check...")
 
     preview_tifs = list(preview_tifs or [])
@@ -1931,6 +2164,9 @@ def process_tar(tar_file):
     tar_name = tar_file.stem
     print(f"\n🔧🔧🔧 PROCESSING {tar_name.upper()} 🔧🔧🔧")
 
+    clear_temp_output_dir(paths["output"])
+    remove_empty_dirs(paths["untarred"])
+
     # Tracking variables
     times_dict = {}
     num_images = 0
@@ -2049,7 +2285,10 @@ def process_tar(tar_file):
                 print("✅ Skipping preview classification (predictions already exist)")
                 should_continue, reason = True, None
             else:
-                should_continue, reason = check_preview_class_distribution(preview_sample_tifs, threshold=0.9)
+                should_continue, reason = check_preview_class_distribution(
+                    preview_sample_tifs,
+                    threshold=PREVIEW_BUBBLE_THRESHOLD,
+                )
             status_log.append(f"Preview classification result: {reason if reason else 'OK'}")
             times_dict["Early preview classification"] = track_time(start_time, "Early preview classification")
 
@@ -2246,6 +2485,8 @@ def process_tar(tar_file):
             if tar_dest.exists():
                 os.remove(tar_dest)
             clear_untarred_dir(extract_dir)
+            clear_temp_output_dir(paths["output"])
+            remove_empty_dirs(paths["untarred"])
         except Exception as cleanup_err:
             status_log.append(f"⚠️ Cleanup failed: {cleanup_err}")
 
