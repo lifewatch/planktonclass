@@ -68,7 +68,7 @@ for gpu in $GPUS; do
     source '$ENV_DIR/bin/activate'
     export CUDA_VISIBLE_DEVICES='$gpu'
     export TF_FORCE_GPU_ALLOW_GROWTH=true
-    exec python -u predict_gpu_remote.py \
+    exec python -u predict_gpu_remote_v2.py \
       --worker-id 'gpu$gpu' \
       --gpu '$gpu' \
       --sleep-seconds '$SLEEP_SECONDS' \
