@@ -68,7 +68,7 @@ pretrained:
   name:
     value: "FlowCam"
     type: "str"
-    choices: ["FlowCam", "FlowCyto", "PI10"]
+    choices: ["FlowCam", "FlowCyto", "PI10","ZooScan"]
     help: >
           Published pretrained model to use when `use_pretrained` is true.
 

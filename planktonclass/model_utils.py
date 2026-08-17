@@ -75,6 +75,17 @@ PRETRAINED_MODELS = {
             }
         },
     },
+    "ZooScan": {
+        "architecture": "EfficientNetV2B0",
+        "versions": {
+            "latest": {
+                "url": "https://mda.vliz.be/download.php?file=VLIZ_00000321_697c8625a407e314649621",
+                "archive_type": "zip",
+                "source_dir_names": ["2026-01-12_103651", "ZooScan"],
+                "checkpoint_name": "final_model.h5",
+            }
+        },
+    },
 }
 PRETRAINED_MODEL_CHOICES = list(PRETRAINED_MODELS.keys())
 PRETRAINED_MODEL_ALIASES = {

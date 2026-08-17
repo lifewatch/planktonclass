@@ -21,7 +21,9 @@ planktonclass: FlowCam
 - [Package downloads](https://pypi.org/project/planktonclass/)
 
 **Projects:** [iMagine](https://www.imagine-ai.eu/)
-  
+
+**Basic usage:** An image folder containing subfolders, each named after a class and containing the corresponding images.
+
 `planktonclass` is a toolkit for training, evaluating, and serving phytoplankton image classifiers!
 
 
@@ -71,6 +73,16 @@ If you want the full repository with Docker, OSCAR, AI4OS, packaged deployment a
   </td>
   </tr>
 </table>
+
+## Performance 
+Package is easy **Instrument-adaptable**
+| Dataset | Images | Classes | Top-1 Accuracy | Top-3 Accuracy |
+|---|---:|---:|---:|---:|
+| **FlowCam** | 337,567 | 95 | 86.3% | 97.1% |
+| **FlowCyto** | 99,301 | 44 | 91.4% | 98.8% |
+| **ZooScan** | 1,279 | 25 | 82.4% | 97.5% |
+| **PI10** | 103,130 | 61 | 80.0% | 95.0% |
+
 
 ## Install
 
@@ -156,6 +168,19 @@ planktonclass init my_project --demo
 planktonclass validate-config my_project
 ```
 
+This will check if the images are in the correct folder stucture:
+```text
+my_project/
+  data/
+    images/
+      class_1/
+        img_1.jpg
+        img_2.jpg
+      class_2/
+        img_1.jpg
+        img_2.jpg
+        img_3.jpg
+```
 
 Local training:
 
@@ -175,7 +200,7 @@ planktonclass train my_project --quick
 planktonclass pretrained my_project --model FlowCam
 ```
 
-Available published pretrained model names currently include `FlowCam`, `FlowCyto`, and `PI10`.
+Available published pretrained model names currently include `FlowCam`, `FlowCyto`, `ZooScan`, and `PI10`.
 Only the actual model directory is extracted into `my_project/models`, even when the downloaded archive contains a
 full exported project tree.
 
@@ -185,7 +210,7 @@ full exported project tree.
 planktonclass docker my_project
 ```
 
-For the published `FlowCam` pretrained model, the packaged checkpoint is currently
+For the published `FlowCam` & `ZooScan` pretrained models, the packaged checkpoint is currently
 `final_model.h5`. The `FlowCyto` and `PI10` published models are expected to use
 `best_model.keras`. New training runs created by `planktonclass train`
 save `best_model.keras` when validation is enabled. If you train without validation,
@@ -219,6 +244,9 @@ Local API:
 ```bash
 planktonclass api my_project
 ```
+This will start this screen:
+
+<img src="docs/pictures_documentation/api_overview.png" alt="API overview" width="500">
 
 ### Option C: I want notebooks
 

@@ -89,6 +89,12 @@ The simplest way to start the API is:
 
    planktonclass api my_project
 
+This will start the API:
+
+.. image:: pictures_documentation/api_overview.png
+   :alt: PlanktonClass API overview
+   :width: 500px
+
 Then open:
 
 * ``http://127.0.0.1:5000/ui``

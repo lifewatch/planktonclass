@@ -174,8 +174,14 @@ def get_custom_objects():
         "customAdam": customAdam,
         "customAdamW": customAdamW,
         "BatchNormalization": CompatBatchNormalization,
+        "CompatBatchNormalization": CompatBatchNormalization,
         "Dense": CompatDense,
+        "CompatDense": CompatDense,
         "InputLayer": CompatInputLayer,
+        # A model loaded through these compatibility shims is serialized with
+        # the concrete shim class name.  Keep those names available so a
+        # subsequently saved .keras checkpoint can be loaded again.
+        "CompatInputLayer": CompatInputLayer,
         "DTypePolicy": tf.keras.mixed_precision.Policy,
     }
 
