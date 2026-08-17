@@ -1,7 +1,7 @@
 import os
 import sys
 
-project = "Planktonclas"
+project = "Planktonclass"
 author = "Wout Decrop"
 copyright = "2026, Wout Decrop"
 release = "0.2.0"
