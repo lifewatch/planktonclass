@@ -25,6 +25,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import backend as K
 from tensorflow.keras import callbacks
+from tensorflow.keras.initializers import VarianceScaling
 from tensorflow.keras.layers import BatchNormalization, Dense, InputLayer
 
 from planktonclass import paths
@@ -184,6 +185,39 @@ def get_custom_objects():
         "CompatInputLayer": CompatInputLayer,
         "DTypePolicy": tf.keras.mixed_precision.Policy,
     }
+
+
+@contextmanager
+def _keras_deserialization_compatibility():
+    """Allow older Keras runtimes to read newer ``VarianceScaling`` configs."""
+    original_from_config = VarianceScaling.from_config
+    had_local_from_config = "from_config" in VarianceScaling.__dict__
+    original_local_from_config = VarianceScaling.__dict__.get("from_config")
+
+    @classmethod
+    def compatible_from_config(cls, config):
+        config = dict(config)
+        # These optional fields were added after the Keras version bundled in
+        # the TensorFlow 2.19 Docker base image.  Older Keras versions reject
+        # them as unexpected constructor arguments.
+        config.pop("input_axes", None)
+        config.pop("output_axes", None)
+        return original_from_config(config)
+
+    VarianceScaling.from_config = compatible_from_config
+    try:
+        yield
+    finally:
+        if had_local_from_config:
+            VarianceScaling.from_config = original_local_from_config
+        else:
+            del VarianceScaling.from_config
+
+
+def load_model_compat(filepath, **kwargs):
+    """Load a Keras model while accepting supported cross-version configs."""
+    with _keras_deserialization_compatibility():
+        return tf.keras.models.load_model(filepath, **kwargs)
 
 
 class LR_scheduler(callbacks.LearningRateScheduler):

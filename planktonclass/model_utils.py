@@ -28,7 +28,7 @@ from tensorflow.keras.layers import (
     Dense,
     GlobalAveragePooling2D,
 )
-from tensorflow.keras.models import Model, load_model
+from tensorflow.keras.models import Model
 from tensorflow.python.saved_model import (
     builder as saved_model_builder, )
 from tensorflow.python.saved_model import tag_constants
@@ -321,7 +321,7 @@ def _load_resume_model(models_dir, timestamp, ckpt_name=None):
 
     model_path = os.path.join(ckpt_dir, selected_ckpt)
     logger.info("▌ Resuming training from checkpoint: %s/%s", timestamp, selected_ckpt)
-    model = load_model(
+    model = utils.load_model_compat(
         model_path,
         custom_objects=utils.get_custom_objects(),
         compile=False,
@@ -390,7 +390,9 @@ def create_model(CONF):
         selected_file = keras_files[-1] if keras_files else ckpt_files[-1]
         model_file = os.path.join(ckpt_dir, selected_file)
         logger.info("▌ Loading model checkpoint: %s", os.path.basename(model_file))
-        base_model = load_model(model_file, custom_objects=utils.get_custom_objects())
+        base_model = utils.load_model_compat(
+            model_file, custom_objects=utils.get_custom_objects()
+        )
         logger.debug("✓ Model output shape: %s", base_model.output_shape)
 
         new_input = base_model.input

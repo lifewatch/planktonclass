@@ -93,7 +93,6 @@ try:
     import tensorflow as tf
     from deepaas.model.v2.wrapper import UploadedFile
     from tensorflow.keras import backend as K
-    from tensorflow.keras.models import load_model
     from webargs import fields
     import logging
 
@@ -317,7 +316,7 @@ def load_inference_model(timestamp=None, ckpt_name=None):
     loader.start()
     try:
         # Load the model
-        model = load_model(
+        model = utils.load_model_compat(
             os.path.join(paths.get_checkpoints_dir(), ckpt_name),
             custom_objects=utils.get_custom_objects(),
             compile=False,

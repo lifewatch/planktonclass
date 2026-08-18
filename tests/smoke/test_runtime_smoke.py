@@ -1,4 +1,33 @@
-from planktonclass import runtime
+from tensorflow.keras.initializers import VarianceScaling
+
+from planktonclass import runtime, utils
+
+
+def test_variance_scaling_compatibility_drops_newer_config_fields(monkeypatch):
+    original_from_config = VarianceScaling.from_config
+
+    @classmethod
+    def older_runtime_from_config(cls, config):
+        if "input_axes" in config or "output_axes" in config:
+            raise TypeError("unexpected newer Keras config field")
+        return original_from_config(config)
+
+    monkeypatch.setattr(VarianceScaling, "from_config", older_runtime_from_config)
+
+    with utils._keras_deserialization_compatibility():
+        initializer = VarianceScaling.from_config(
+            {
+                "seed": None,
+                "scale": 2.0,
+                "mode": "fan_out",
+                "distribution": "truncated_normal",
+                "input_axes": None,
+                "output_axes": None,
+            }
+        )
+
+    assert initializer.scale == 2.0
+    assert VarianceScaling.from_config({"scale": 1.0}).scale == 1.0
 
 
 def test_runtime_sets_tensorflow_log_level_env(monkeypatch):

@@ -382,7 +382,7 @@ def train_fn(TIMESTAMP, CONF):
                 "Reloading preferred checkpoint for test evaluation: %s",
                 display_path(preferred_ckpt_path),
             )
-            model = tf.keras.models.load_model(
+            model = utils.load_model_compat(
                 preferred_ckpt_path,
                 custom_objects=utils.get_custom_objects(),
                 compile=False,
