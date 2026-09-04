@@ -40,6 +40,19 @@ logger = logging.getLogger(__name__)
 _LABEL_PATTERN = re.compile(r"^(?P<path>.+?)\s+(?P<label>-?\d+)\s*$")
 
 
+def _is_readable_image(file_path):
+    """Return whether OpenCV can identify a decoder for ``file_path``.
+
+    This checks the file contents rather than relying on an extension, allowing
+    supported image formats with non-standard extensions while excluding dataset
+    sidecars such as CSV and TXT files.
+    """
+    try:
+        return cv2.haveImageReader(file_path)
+    except cv2.error:
+        return False
+
+
 def _iter_nonempty_lines(file_path):
     with open(file_path, "r", encoding="utf-8") as handle:
         for raw_line in handle:
@@ -100,13 +113,18 @@ def create_data_splits(splits_dir, im_dir, split_ratios=[0.7, 0.15, 0.15]):
     file_paths = []
 
     logger.info("[data] Scanning images in %s", im_dir.replace("\\", "/").split("/")[-3:])
+    skipped_files = 0
     for root, _, files in os.walk(im_dir):
         for file in files:
             file_path = os.path.join(root, file)
             relative_path = os.path.relpath(file_path, im_dir)
-            if file.endswith((".db", ".DS_Store")):
+            if not _is_readable_image(file_path):
+                skipped_files += 1
                 continue
             file_paths.append(relative_path)
+
+    if skipped_files:
+        logger.info("[data] Skipped %s non-image file(s)", skipped_files)
 
     # Get a list of folder names within the "im_dir" directory
     folder_names = sorted(next(os.walk(im_dir))[1])

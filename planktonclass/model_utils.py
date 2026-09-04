@@ -68,7 +68,7 @@ PRETRAINED_MODELS = {
         "architecture": "EfficientNetV2B0",
         "versions": {
             "latest": {
-                "url": "https://zenodo.org/records/19663235/files/lifewatch/planktonclass-v1.0-PI10.zip?download=1",
+                "url": "https://zenodo.org/records/19663235/files/lifewatch/planktonclas-v1.0-PI10.zip?download=1",
                 "archive_type": "zip",
                 "source_dir_names": ["PI10", "planktonclass-v1.0-PI10"],
                 "checkpoint_name": "best_model.keras",

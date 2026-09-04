@@ -1,0 +1,63 @@
+cff-version: 1.2.0
+title: "planktonclass"
+message: "If you use planktonclass in your research, please cite the associated publication."
+
+type: software
+license: Apache-2.0
+
+authors:
+  - family-names: Decrop
+    given-names: Wout
+    affiliation: Flanders Marine Institute (VLIZ)
+
+  - family-names: Lagaisse
+    given-names: Rune
+    affiliation: Flanders Marine Institute (VLIZ)
+
+  - family-names: Mortelmans
+    given-names: Jonas
+    affiliation: Flanders Marine Institute (VLIZ)
+
+  - family-names: Muñiz
+    given-names: Carlota
+    affiliation: Flanders Marine Institute (VLIZ)
+
+  - family-names: Heredia
+    given-names: Ignacio
+    affiliation: Instituto de Física de Cantabria (IFCA)
+
+  - family-names: Calatrava
+    given-names: Amanda
+    affiliation: Universitat Politècnica de València (UPV)
+
+  - family-names: Deneudt
+    given-names: Klaas
+    affiliation: Flanders Marine Institute (VLIZ)
+
+repository-code: "https://github.com/lifewatch/planktonclass"
+
+url: "https://github.com/lifewatch/planktonclass"
+
+preferred-citation:
+  type: article
+  authors:
+    - family-names: Decrop
+      given-names: Wout
+    - family-names: Lagaisse
+      given-names: Rune
+    - family-names: Mortelmans
+      given-names: Jonas
+    - family-names: Muñiz
+      given-names: Carlota
+    - family-names: Heredia
+      given-names: Ignacio
+    - family-names: Calatrava
+      given-names: Amanda
+    - family-names: Deneudt
+      given-names: Klaas
+  title: "Automated image classification workflow for phytoplankton monitoring"
+  journal: "Frontiers in Marine Science"
+  year: 2025
+  volume: 12
+  pages: 1699781
+  doi: "10.3389/fmars.2025.1699781"
