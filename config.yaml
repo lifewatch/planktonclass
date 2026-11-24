@@ -24,13 +24,15 @@ general:
     help: >
           Base directory for data and models. All the data that will be read and written will be done within this
           directory.
-          If path is relative it will be appended to the package path.
+          If path is relative it will be resolved from the active config directory, or from the current working
+          directory when using the packaged default config.
 
   images_directory:
     value: "./data/images"
     type: "str"
     help: >
-          Base directory for images. If the path is relative, it will be appended to the package path.
+          Base directory for images. If the path is relative, it will be resolved from the active config directory,
+          or from the current working directory when using the packaged default config.
 
 
 #####################################################
@@ -68,7 +70,7 @@ pretrained:
   name:
     value: "FlowCam"
     type: "str"
-    choices: ["FlowCam", "FlowCyto", "PI10","ZooScan"]
+    choices: ["FlowCam", "FlowCyto", "PI10", "ZooScan"]
     help: >
           Published pretrained model to use when `use_pretrained` is true.
 

@@ -5,6 +5,15 @@ from types import ModuleType
 from planktonclass import cli
 
 
+def test_packaged_config_matches_repository_template():
+    repository_config = Path(__file__).parents[2] / "config.yaml"
+    packaged_config = Path(cli.config.DEFAULT_CONFIG_PATH)
+
+    assert packaged_config.read_text(encoding="utf-8") == repository_config.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_cli_init_creates_basic_project_structure(tmp_path):
     project_dir = tmp_path / "my_project"
 

@@ -83,6 +83,11 @@ Package is easy **Instrument-adaptable**
 | **ZooScan** | 1,279 | 25 | 82.4% | 97.5% |
 | **PI10** | 103,130 | 61 | 94.7% | 98.9% |
 
+## Reproducibility
+
+The FlowCam results of [Decrop et al. (2025)](https://doi.org/10.3389/fmars.2025.1699781) were independently reproduced by Anne Fouilloux (LifeWatch ERIC, FIESTA-OSCARS). Using the published model weights and test split on different hardware, the reproduction matches all five reported metrics (top-1, top-5, micro/macro/weighted F1) to within 0.003 percentage points.
+See [annefou/fiesta-decrop-reproduction](https://github.com/annefou/fiesta-decrop-reproduction) ([Zenodo DOI](https://doi.org/10.5281/zenodo.19701133)).
+
 
 ## Install
 
